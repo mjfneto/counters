@@ -29,9 +29,18 @@
             margin-bottom: 30px;
             border-bottom: 2px solid var(--accent-color);
             padding-bottom: 10px;
+            width: 100%;
+            max-width: 800px;
         }
 
-        #add-counter-btn {
+        .header-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 15px;
+        }
+
+        .action-btn {
             background: var(--accent-color);
             border: none;
             color: white;
@@ -43,9 +52,18 @@
             transition: 0.1s;
         }
 
-        #add-counter-btn:active {
+        .action-btn:active {
             transform: translateY(2px);
             box-shadow: 0 2px #a35d1a;
+        }
+
+        .secondary-btn {
+            background: #444;
+            box-shadow: 0 4px #222;
+        }
+        
+        .secondary-btn:active {
+            box-shadow: 0 2px #222;
         }
 
         .counters-container {
@@ -142,22 +160,107 @@
             height: 25px;
             font-size: 10px;
         }
+        
+        #file-input {
+            display: none;
+        }
     </style>
 </head>
 <body>
 
     <div class="header">
         <h1>MECHANICAL COUNTERS</h1>
-        <button id="add-counter-btn">+ New Counter</button>
+        <div class="header-buttons">
+            <button id="add-counter-btn" class="action-btn">+ New Counter</button>
+            <button id="export-btn" class="action-btn secondary-btn">Exportar Backup</button>
+            <button id="import-btn" class="action-btn secondary-btn">Importar Backup</button>
+            <input type="file" id="file-input" accept=".json">
+        </div>
     </div>
 
     <div class="counters-container" id="container"></div>
 
     <script>
-        let counters = JSON.parse(localStorage.getItem('veeder_counters')) || [];
+        let counters = [];
+
+        // Inicializa dados lendo da URL, depois do LocalStorage
+        function init() {
+            let loaded = false;
+            // 1. Tenta carregar da URL (Hash)
+            if (window.location.hash) {
+                try {
+                    const hashData = decodeURIComponent(window.location.hash.substring(1));
+                    counters = JSON.parse(hashData);
+                    loaded = true;
+                } catch (e) {
+                    console.error("Erro ao ler dados da URL", e);
+                }
+            }
+            
+            // 2. Se a URL estiver vazia, tenta do LocalStorage
+            if (!loaded) {
+                counters = JSON.parse(localStorage.getItem('veeder_counters')) || [];
+            }
+            
+            render();
+        }
 
         function save() {
-            localStorage.setItem('veeder_counters', JSON.stringify(counters));
+            const dataStr = JSON.stringify(counters);
+            // Salva no LocalStorage
+            try {
+                localStorage.setItem('veeder_counters', dataStr);
+            } catch (e) {
+                console.warn("LocalStorage indisponível");
+            }
+            // Salva na URL para recuperar via favorito
+            window.history.replaceState(null, '', '#' + encodeURIComponent(dataStr));
+        }
+
+        // Exportar para arquivo JSON
+        function exportToFile() {
+            if (counters.length === 0) {
+                alert("Não há contadores para exportar.");
+                return;
+            }
+            const dataStr = JSON.stringify(counters, null, 2);
+            const blob = new Blob([dataStr], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            const date = new Date().toISOString().split('T')[0];
+            a.download = `counters_backup_${date}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        // Importar de arquivo JSON
+        function importFromFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const importedData = JSON.parse(e.target.result);
+                    if (Array.isArray(importedData)) {
+                        counters = importedData;
+                        save();
+                        render();
+                        alert("Backup carregado com sucesso!");
+                    } else {
+                        alert("Formato de arquivo inválido.");
+                    }
+                } catch (err) {
+                    alert("Erro ao ler o arquivo: " + err.message);
+                }
+                // Limpa o input para permitir importar o mesmo arquivo novamente se necessário
+                event.target.value = '';
+            };
+            reader.readAsText(file);
         }
 
         function createCounter() {
@@ -187,21 +290,26 @@
         function resetValue(id) {
             const counter = counters.find(c => c.id === id);
             if (counter) {
-                counter.value = 0;
-                save();
-                updateDisplay(id);
+                if(confirm(`Zerar o contador "${counter.title}"?`)) {
+                    counter.value = 0;
+                    save();
+                    updateDisplay(id);
+                }
             }
         }
 
         function deleteCounter(id) {
-            counters = counters.filter(c => c.id !== id);
-            save();
-            render();
+            if(confirm("Tem certeza que deseja excluir este contador?")) {
+                counters = counters.filter(c => c.id !== id);
+                save();
+                render();
+            }
         }
 
         function updateDisplay(id) {
             const counter = counters.find(c => c.id === id);
             const card = document.querySelector(`[data-id="${id}"]`);
+            if (!card) return;
             const valueStr = counter.value.toString().padStart(5, '0');
             const strips = card.querySelectorAll('.digit-strip');
 
@@ -220,7 +328,6 @@
                 card.className = 'counter-card';
                 card.setAttribute('data-id', c.id);
                 
-                // HTML do Display (5 dígitos)
                 let displayHTML = '<div class="odometer-display">';
                 for(let i=0; i<5; i++) {
                     displayHTML += `
@@ -249,7 +356,11 @@
         }
 
         document.getElementById('add-counter-btn').addEventListener('click', createCounter);
-        render();
+        document.getElementById('export-btn').addEventListener('click', exportToFile);
+        document.getElementById('import-btn').addEventListener('click', () => document.getElementById('file-input').click());
+        document.getElementById('file-input').addEventListener('change', importFromFile);
+        
+        init();
     </script>
 </body>
 </html>
